@@ -210,6 +210,10 @@ If ($vRLISession.Connected -eq 'True'){
 
         }
 
+        Elseif ($NFSPath.count -gt 0){
+            $NFSPath = $NFSPath[0]
+        }
+
         Write-host -ForegroundColor Green 'NFS mount found, meh continue the script'
         Log -Message "NFS mount $NFSPath found, meh continue the script" -LogType "INFO-$RunDateTime" -LogFile $LogFilePath
     } 
@@ -295,7 +299,7 @@ If ($vRLISession.Connected -eq 'True'){
 
                 $CommandCheckNFSPathStartDay = "find " + $NFSPath + "/" + $StartYear + "/" + $StartMonth + "/" + $StartDay + ' -type f -mtime ' + $ArchiveDays + ' \( -name "*.blob" \)'
 
-                [array]$NFSArchiveDayContents = (Invoke-SSHCommand -SessionId $vRLISession.SessionId -Command $CommandCheckNFSPathStartDay).Output
+                [array]$NFSArchiveDayContents = (Invoke-SSHCommand -SessionId $vRLISession.SessionId -Command $CommandCheckNFSPathStartDay -Timeout 300).Output
 
                 Log -Message "Found the following Files $NFSArchiveDayContents in day $StartDay" -LogType "INFO-$RunDateTime" -LogFile $LogFilePath
 
@@ -316,7 +320,13 @@ If ($vRLISession.Connected -eq 'True'){
 
                         Remove-SSHSession -SessionId $vRLISession.SessionId
 
-                        }
+                        } else {
+                        Write-host -ForegroundColor Red "The command to check the blobs in the NFS share has timed out or returned null where not expected."
+                        Log -Message "The command to check the blobs in the NFS share has timed out or returned null where not expected." -LogType "INFO-$RunDateTime" -LogFile $LogFilePath
+                        SS64Mail $mailserver $mailport $SMTPUser $SMTPPassword "The command to check the blobs in the NFS share has timed out or returned null where not expected." $mailSender $email
+                        Remove-SSHSession -SessionId $vRLISession.SessionId
+                        Exit
+                    }
 
             }
 
