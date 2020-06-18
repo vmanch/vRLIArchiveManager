@@ -307,7 +307,7 @@ If ($vRLISession.Connected -eq 'True'){
                     
                     }
                     if ($tempVar[0] -like '*.blob*' -and $day -lt $StartDay) {
-                        $NFSArchiveDayContents += "rm -rf" + $NFSPath + "/" + $year + "/" + $month + "/" + $day
+                        $NFSArchiveDayContents += "rm -rf " + $NFSPath + "/" + $year + "/" + $month + "/" + $day
                     }
                 }
 
