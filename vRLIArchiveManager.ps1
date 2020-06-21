@@ -323,7 +323,7 @@ If ($vRLISession.Connected -eq 'True'){
             Write-host -ForegroundColor Green "Running '$command'"
             Log -Message "Running '$command'" -LogType "INFO-$RunDateTime" -LogFile $LogFilePath
 
-            $CommandDeleteblobsOutput =  (Invoke-SSHCommand -SessionId $vRLISession.SessionId -Command $command).Output
+            $CommandDeleteblobsOutput =  (Invoke-SSHCommand -SessionId $vRLISession.SessionId -Command $command -TimeOut 300).Output
         }
 
         Write-host -ForegroundColor Green "Boom done! script completed, disconnecting."
