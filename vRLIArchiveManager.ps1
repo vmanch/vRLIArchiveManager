@@ -273,73 +273,71 @@ If ($vRLISession.Connected -eq 'True'){
         }
     }
 
-    $CommandCheckNFSPathStartYear = "ls " + $NFSPath + "/" + $StartYear
+    [array]$NFSArchiveDayContents = @()
+    
+    $getYears = "ls " + $NFSPath
+    $gotYears = (Invoke-SSHCommand -SessionId $vRLISession.SessionId -Command $getYears -TimeOut 300).Output | where-object { $_ -like "*20*" }
 
-    [array]$NFSArchiveYearContents = (Invoke-SSHCommand -SessionId $vRLISession.SessionId -Command $CommandCheckNFSPathStartYear).Output
-
-    If ($NFSArchiveYearContents -gt ''){
-
-        Log -Message "Found the following months $NFSArchiveYearContents in $StartYear" -LogType "INFO-$RunDateTime" -LogFile $LogFilePath
-
-        If ($NFSArchiveYearContents -match $StartMonth){
-
-            Write-host -ForegroundColor Green "Off to a good start... found the start month $StartMonth in $StartYear on the NFS share so we are continuing"
-            Log -Message "Off to a good start... found the start month $StartMonth in $StartYear on the NFS share so we are continuing" -LogType "INFO-$RunDateTime" -LogFile $LogFilePath
-
-            $CommandCheckNFSPathStartMonth = "ls " + $NFSPath + "/" + $StartYear + "/" + $StartMonth
-
-            [array]$NFSArchiveMonthContents = (Invoke-SSHCommand -SessionId $vRLISession.SessionId -Command $CommandCheckNFSPathStartMonth).Output
-
-            Log -Message "Found the following days $NFSArchiveMonthContents in month $StartMonth on the NFS share so we are continuing" -LogType "INFO-$RunDateTime" -LogFile $LogFilePath
-
-            If ($NFSArchiveMonthContents -match $StartDay){
-
-                Write-host -ForegroundColor Green "Ohh soo far so good... found $StartDay on the NFS share so we are continuing"
-                Log -Message "Ohh soo far so good... found $StartDay on the NFS share so we are continuing" -LogType "INFO-$RunDateTime" -LogFile $LogFilePath
-
-                $CommandCheckNFSPathStartDay = "find " + $NFSPath + "/" + $StartYear + "/" + $StartMonth + "/" + $StartDay + ' -type f -mtime ' + $ArchiveDays + ' \( -name "*.blob" \)'
-
-                [array]$NFSArchiveDayContents = (Invoke-SSHCommand -SessionId $vRLISession.SessionId -Command $CommandCheckNFSPathStartDay -Timeout 300).Output
-
-                Log -Message "Found the following Files $NFSArchiveDayContents in day $StartDay" -LogType "INFO-$RunDateTime" -LogFile $LogFilePath
-
-                    If ($NFSArchiveDayContents -gt ''){
-            
-                        Write-host -ForegroundColor Green "Boom! blobs on the NFS share, go go go let's start deleting old blobs"
-                        Log -Message "Boom! found blobs on the NFS share, go go go let's start deleting old blobs" -LogType "INFO-$RunDateTime" -LogFile $LogFilePath
-
-                        $CommandDeleteblobs = "find " + $NFSPath + "/" + $StartYear + "/" + $StartMonth + "/" + $StartDay + ' -type f -mtime ' + $ArchiveDays + ' \( -name "*.blob" \) -print0 | while IFS= read -r -d '''' file ; do rm "$file" ; done'
-
-                        Write-host -ForegroundColor Green "Running $CommandDeleteblobs"
-                        Log -Message "Running $CommandDeleteblobs" -LogType "INFO-$RunDateTime" -LogFile $LogFilePath
-
-                        $CommandDeleteblobsOutput =  (Invoke-SSHCommand -SessionId $vRLISession.SessionId -Command $CommandDeleteblobs).Output
-
-                        Write-host -ForegroundColor Green "Boom done! script completed, disconnecting."
-                        Log -Message "Boom done! Output: $CommandDeleteblobsOutput script completed, disconnecting." -LogType "INFO-$RunDateTime" -LogFile $LogFilePath
-
-                        Remove-SSHSession -SessionId $vRLISession.SessionId
-
-                        } else {
-                        Write-host -ForegroundColor Red "The command to check the blobs in the NFS share has timed out or returned null where not expected."
-                        Log -Message "The command to check the blobs in the NFS share has timed out or returned null where not expected." -LogType "INFO-$RunDateTime" -LogFile $LogFilePath
-                        SS64Mail $mailserver $mailport $SMTPUser $SMTPPassword "The command to check the blobs in the NFS share has timed out or returned null where not expected." $mailSender $email
-                        Remove-SSHSession -SessionId $vRLISession.SessionId
-                        Exit
+    foreach ($year in $gotYears) {
+        $getMonths = "ls " + $NFSPath + "/" + $year
+        $gotMonths = (Invoke-SSHCommand -SessionId $vRLISession.SessionId -Command $getMonths -TimeOut 300).Output
+        foreach ($month in $gotMonths) {
+            $getDays = "ls " + $NFSPath + "/" + $year + "/" + $month + "/"
+            $gotDays = (Invoke-SSHCommand -SessionId $vRLISession.SessionId -Command $getDays -TimeOut 300).Output
+            foreach ($day in $gotDays) {
+                $CommandCheckNFSPathStartDay = "find " + $NFSPath + "/" + $year + "/" + $month + "/" + $day + ' -type f \( -name "*.blob" \)'
+                try {
+                    $currentDate = [DateTime]::ParseExact($year+$month+$day, "yyyyMMdd", $null)
+                }
+                catch {
+                    $currentDate = Get-Date
+                    write-warning "$NFSPath/$year/$month/$day does not exist. Moving on."
+                    Log -Message "$NFSPath/$year/$month/$day does not exist. Moving on." -LogType "INFO-$RunDateTime" -LogFile $LogFilePath
+                }
+                if ($currentDate -lt $CleanupDateTime) { 
+                    try {
+                        write-host "Checking path:" $CommandCheckNFSPathStartDay
+                        Log -Message "Checking path: $CommandCheckNFSPathStartDay" -LogType "INFO-$RunDateTime" -LogFile $LogFilePath
+                        $tempVar = (Invoke-SSHCommand -SessionId $vRLISession.SessionId -Command $CommandCheckNFSPathStartDay -timeout 300).Output
                     }
+                    catch [System.Management.Automation.MethodInvocationException] { # catch exception and move on if command runs over 300 seconds.
+                        write-warning "Command timed out. Moving on."
+                        Log -Message "Command timed out. Moving on." -LogType "INFO-$RunDateTime" -LogFile $LogFilePath
+                        $vRLISession = New-SSHSession -ComputerName $vRLI -Credential $vRLICred -AcceptKey -Force -KeepAliveInterval 60
+                    
+                    }
+                    if ($tempVar[0] -like '*.blob*' -and $day -lt $StartDay) {
+                        $NFSArchiveDayContents += "rm -rf " + $NFSPath + "/" + $year + "/" + $month + "/" + $day
+                    }
+                }
 
             }
+        }
+    }
+    If ($NFSArchiveDayContents.length -gt 0){
+            
+        Write-host -ForegroundColor Green "Boom! blobs on the NFS share, go go go let's start deleting old blobs"
+        Log -Message "Boom! found blobs on the NFS share, go go go let's start deleting old blobs" -LogType "INFO-$RunDateTime" -LogFile $LogFilePath
 
+        foreach ($command in $NFSArchiveDayContents) {
+            Write-host -ForegroundColor Green "Running '$command'"
+            Log -Message "Running '$command'" -LogType "INFO-$RunDateTime" -LogFile $LogFilePath
+
+            $CommandDeleteblobsOutput =  (Invoke-SSHCommand -SessionId $vRLISession.SessionId -Command $command -TimeOut 300).Output
         }
 
+        Write-host -ForegroundColor Green "Boom done! script completed, disconnecting."
+        Log -Message "Boom done! Output: $CommandDeleteblobsOutput script completed, disconnecting." -LogType "INFO-$RunDateTime" -LogFile $LogFilePath
+
+        Remove-SSHSession -SessionId $vRLISession.SessionId
+
     } else {
-        Write-host -ForegroundColor Red "Couldn't find the $StartDate in the NFS share please check the StartDate provided and try again, killing SSH session and ending script."
-        Log -Message "Couldn't find the $StartDate in the NFS share please check the StartDate provided and try again, killing SSH session and ending script." -LogType "INFO-$RunDateTime" -LogFile $LogFilePath
-        SS64Mail $mailserver $mailport $SMTPUser $SMTPPassword "vRLI Automated NFS Archive Cleanup failed on $vRLI" "The restored period was $StartDate, Couldn't find the $StartDate in the NFS share please check the StartDate provided and try again" $mailSender $email
+        write-host -ForegroundColor Red "The command to check the blobs in the NFS share timed out or returned null where not expected."
+        Log -Message "The command to check the blobs in the NFS share timed out or returned null where not expected." -LogType "INFO-$RunDateTime" -LogFile $LogFilePath
+        SS64Mail $mailserver $mailport $SMTPUser $SMTPPassword "The command to check the blobs in the NFS share timed out or returned null where not expected." $mailSender $email
         Remove-SSHSession -SessionId $vRLISession.SessionId
         Exit
     }
-
 }
 else {
 
@@ -347,6 +345,3 @@ Write-host -ForegroundColor DarkYellow "Couldnt SSH to $vRLI, aborting script"
 Log -Message "Couldnt SSH to $vRLI, aborting script" -LogType "INFO-$RunDateTime" -LogFile $LogFilePath
 SS64Mail $mailserver $mailport $SMTPUser $SMTPPassword "vRLI Automated NFS Archive Restore Failed on $vRLI" "Couldn't SSH to $vRLI, aborting script" $mailSender $email
 }
-
-
-
