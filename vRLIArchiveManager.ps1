@@ -228,7 +228,7 @@ If ($vRLISession.Connected -eq 'True'){
 
         If ($NFSArchiveConfigPath.ExitStatus -eq 0 -and $NFSArchiveConfigPath.Output -gt ''){
 
-            $NFSArchiveConfigXMLGrep = 'grep -oP ''nfs:?[\s\S]*?[^\\"]*'' ' + $NFSArchiveConfigPath.Output 
+            $NFSArchiveConfigXMLGrep = 'grep -oE ''nfs:?[\s\S]*?[^\\"]*'' ' + $NFSArchiveConfigPath.Output 
     
             $NFSArchiveConfigXMLPath = Invoke-SSHCommand -SessionId $vRLISession.SessionId -Command $NFSArchiveConfigXMLGrep
 
@@ -242,7 +242,7 @@ If ($vRLISession.Connected -eq 'True'){
 
                 $NFSArchiveConfigXMLPath = $NFSArchiveConfigXMLPath -replace $NFSServer,$NFSServerMountable
 
-                Write-host -ForegroundColor Green 'Found a valid config with an NFS Archive path, mounting $NFSArchiveConfigXMLPathit manually'
+                Write-host -ForegroundColor Green "Found a valid config with an NFS Archive path, mounting $NFSArchiveConfigXMLPath manually"
                 Log -Message "Found a valid config with an NFS Archive path, mounting $NFSArchiveConfigXMLPath manually" -LogType "INFO-$RunDateTime" -LogFile $LogFilePath
 
                 $mkdirOutput = Invoke-SSHCommand -SessionId $vRLISession.SessionId -Command 'mkdir /storage/core/loginsight/nfsmount/tmprestoremnt'
